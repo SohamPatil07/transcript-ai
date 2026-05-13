@@ -1,5 +1,6 @@
 import { verifyToken } from "@clerk/backend";
 import {
+  createCorsHeaders,
   createJsonResponse,
   findTranscriptMatchesLocally,
   generateChatAnswer,
@@ -7,31 +8,41 @@ import {
 } from "./_rag.js";
 
 export async function handler(event) {
+  const origin = event.headers.origin || "*";
+
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: createCorsHeaders(origin),
+      body: "",
+    };
+  }
+
   if (event.httpMethod !== "POST") {
-    return createJsonResponse(405, { error: "Method not allowed." });
+    return createJsonResponse(405, { error: "Method not allowed." }, origin);
   }
 
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
   if (!clerkSecretKey) {
-    return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." });
+    return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." }, origin);
   }
 
   const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
   if (!token) {
-    return createJsonResponse(401, { error: "Sign in before using transcript chat." });
+    return createJsonResponse(401, { error: "Sign in before using transcript chat." }, origin);
   }
 
   try {
     await verifyToken(token, { secretKey: clerkSecretKey });
   } catch {
-    return createJsonResponse(401, { error: "Your session expired. Please sign in again." });
+    return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
   }
 
   let body = {};
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
-    return createJsonResponse(400, { error: "Invalid JSON request body." });
+    return createJsonResponse(400, { error: "Invalid JSON request body." }, origin);
   }
   const transcriptId = typeof body.transcript_id === "string" ? body.transcript_id.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -43,15 +54,15 @@ export async function handler(event) {
   const recentMessages = normalizeChatHistory(body.messages);
 
   if (!transcriptId) {
-    return createJsonResponse(400, { error: "Missing transcript_id." });
+    return createJsonResponse(400, { error: "Missing transcript_id." }, origin);
   }
 
   if (!question) {
-    return createJsonResponse(400, { error: "Ask a question about the transcript." });
+    return createJsonResponse(400, { error: "Ask a question about the transcript." }, origin);
   }
 
   if (!transcriptText) {
-    return createJsonResponse(400, { error: "Missing transcript_text." });
+    return createJsonResponse(400, { error: "Missing transcript_text." }, origin);
   }
 
   try {
@@ -67,7 +78,7 @@ export async function handler(event) {
           "I could not find enough evidence in this transcript to answer that confidently.",
         sources: [],
         created_at: new Date().toISOString(),
-      });
+      }, origin);
     }
 
     const result = await generateChatAnswer({
@@ -83,12 +94,12 @@ export async function handler(event) {
       model: result.model,
       sources: result.sources,
       created_at: new Date().toISOString(),
-    });
+    }, origin);
   } catch (error) {
     console.error("Transcript chat error:", error.message);
     return createJsonResponse(500, {
       error: error.message || "Failed to answer the question.",
-    });
+    }, origin);
   }
 }
 

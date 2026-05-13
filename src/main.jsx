@@ -38,6 +38,7 @@ import {
 import "./styles.css";
 
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const apiBaseUrl = resolveApiBaseUrl();
 
 if (!clerkKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env");
@@ -133,7 +134,7 @@ function App() {
     setLoading(true);
     try {
       const token = await getToken();
-      const response = await fetch("/.netlify/functions/transcribe", {
+      const response = await fetch(getApiUrl("/.netlify/functions/transcribe"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -239,7 +240,7 @@ function App() {
     setMessage("");
     try {
       const token = await getToken();
-      const response = await fetch("/.netlify/functions/summarize", {
+      const response = await fetch(getApiUrl("/.netlify/functions/summarize"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -292,7 +293,7 @@ function App() {
 
     try {
       const token = await getToken();
-      const response = await fetch("/.netlify/functions/chat", {
+      const response = await fetch(getApiUrl("/.netlify/functions/chat"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -870,6 +871,25 @@ function createMessage(role, content, sources = [], createdAt = new Date().toISO
     created_at: createdAt,
     sources: Array.isArray(sources) ? sources : [],
   };
+}
+
+function getApiUrl(pathname) {
+  if (!apiBaseUrl) return pathname;
+  return `${apiBaseUrl.replace(/\/$/, "")}${pathname}`;
+}
+
+function resolveApiBaseUrl() {
+  const desktopBaseUrl = window.desktopApp?.apiBaseUrl;
+  if (typeof desktopBaseUrl === "string" && desktopBaseUrl.trim()) {
+    return desktopBaseUrl.trim();
+  }
+
+  const viteBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  if (typeof viteBaseUrl === "string" && viteBaseUrl.trim()) {
+    return viteBaseUrl.trim();
+  }
+
+  return "";
 }
 
 createRoot(document.getElementById("root")).render(

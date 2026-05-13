@@ -1,7 +1,3 @@
-const jsonHeaders = {
-  "Content-Type": "application/json",
-};
-
 const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_SUMMARY_MODEL = "llama-3.3-70b-versatile";
 const CHUNK_SIZE = 3500;
@@ -11,6 +7,7 @@ const DEFAULT_GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const SUMMARY_CHUNK_LIMIT = 6;
 
 export {
+  createCorsHeaders,
   createJsonResponse,
   createTranscriptChunks,
   findTranscriptMatchesLocally,
@@ -19,10 +16,19 @@ export {
   normalizeChatHistory,
 };
 
-function createJsonResponse(statusCode, body) {
+function createCorsHeaders(origin = "*") {
+  return {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  };
+}
+
+function createJsonResponse(statusCode, body, origin = "*") {
   return {
     statusCode,
-    headers: jsonHeaders,
+    headers: createCorsHeaders(origin),
     body: JSON.stringify(body),
   };
 }

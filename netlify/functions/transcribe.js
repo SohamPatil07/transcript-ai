@@ -1,34 +1,44 @@
 import { verifyToken } from "@clerk/backend";
-import { createJsonResponse } from "./_rag.js";
+import { createCorsHeaders, createJsonResponse } from "./_rag.js";
 
 const headers = {
   "Content-Type": "application/json",
 };
 
 export async function handler(event) {
+  const origin = event.headers.origin || "*";
+
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: createCorsHeaders(origin),
+      body: "",
+    };
+  }
+
   if (event.httpMethod !== "POST") {
-    return json(405, { error: "Method not allowed." });
+    return createJsonResponse(405, { error: "Method not allowed." }, origin);
   }
 
   const apifyToken = process.env.APIFY_TOKEN;
   const actorId = process.env.APIFY_ACTOR_ID || "trisecode/yt-transcript";
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
 
-  if (!apifyToken) return json(500, { error: "Missing APIFY_TOKEN." });
-  if (!clerkSecretKey) return json(500, { error: "Missing CLERK_SECRET_KEY." });
+  if (!apifyToken) return createJsonResponse(500, { error: "Missing APIFY_TOKEN." }, origin);
+  if (!clerkSecretKey) return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." }, origin);
 
   const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!token) return json(401, { error: "Sign in before transcribing." });
+  if (!token) return createJsonResponse(401, { error: "Sign in before transcribing." }, origin);
 
   try {
     await verifyToken(token, { secretKey: clerkSecretKey });
   } catch {
-    return json(401, { error: "Your session expired. Please sign in again." });
+    return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
   }
 
   const body = JSON.parse(event.body || "{}");
   const videoId = extractYouTubeVideoId(body.url);
-  if (!videoId) return json(400, { error: "Paste a valid YouTube link." });
+  if (!videoId) return createJsonResponse(400, { error: "Paste a valid YouTube link." }, origin);
 
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -38,7 +48,7 @@ export async function handler(event) {
 
     if (!normalized.transcript_text) {
       console.error("No transcript text extracted. Normalized data:", JSON.stringify(normalized).substring(0, 500));
-      return json(422, {
+      return createJsonResponse(422, {
         error: normalized.error || "No transcript was returned for this video. It may not have captions available.",
         debug: {
           title: normalized.title,
@@ -46,7 +56,7 @@ export async function handler(event) {
           segmentCount: normalized.segments.length,
           responseStructure: JSON.stringify(actorItems[0]).substring(0, 200),
         },
-      });
+      }, origin);
     }
 
     return createJsonResponse(200, {
@@ -60,10 +70,10 @@ export async function handler(event) {
         language: normalized.language,
         created_at: new Date().toISOString(),
       },
-    });
+    }, origin);
   } catch (error) {
     console.error("Transcription error:", error.message);
-    return json(500, { error: error.message || "Failed to transcribe video. Please try again." });
+    return createJsonResponse(500, { error: error.message || "Failed to transcribe video. Please try again." }, origin);
   }
 }
 
@@ -266,12 +276,4 @@ function sanitizeId(value) {
 
 function createId() {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function json(statusCode, body) {
-  return {
-    statusCode,
-    headers,
-    body: JSON.stringify(body),
-  };
 }
