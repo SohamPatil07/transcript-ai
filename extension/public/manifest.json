@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Transcript AI",
+  "description": "Fetch YouTube transcripts from a Chrome side panel using Transcript AI.",
+  "version": "0.1.0",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://youtube.com/*",
+    "https://m.youtube.com/*",
+    "https://youtu.be/*",
+    "http://127.0.0.1:8888/*"
+  ],
+  "action": {
+    "default_title": "Open Transcript AI"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8888 https://api.clerk.com https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com; frame-src 'self' http://127.0.0.1:8888 https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com;"
+  }
+}

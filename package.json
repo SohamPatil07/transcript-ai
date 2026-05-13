@@ -12,7 +12,11 @@
     "lint": "eslint .",
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "desktop:build": "vite build",
-    "desktop:dist": "vite build && electron-builder --win nsis"
+    "desktop:dist": "vite build && electron-builder --win nsis",
+    "extension:prepare": "node scripts/generate-extension-manifest.mjs",
+    "extension:dev": "npm run extension:prepare && vite build --watch --config extension/vite.config.mjs",
+    "extension:build": "npm run extension:prepare && vite build --config extension/vite.config.mjs",
+    "extension:pack": "npm run extension:build"
   },
   "dependencies": {
     "@clerk/backend": "2.10.1",

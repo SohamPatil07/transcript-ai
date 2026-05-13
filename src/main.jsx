@@ -39,6 +39,7 @@ import "./styles.css";
 
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const apiBaseUrl = resolveApiBaseUrl();
+const extensionContext = readExtensionContext();
 
 if (!clerkKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env");
@@ -89,6 +90,12 @@ function App() {
     setTranscripts(items);
     setActiveId(items[0]?.id ?? null);
   }, [isLoaded, userId]);
+
+  useEffect(() => {
+    if (!extensionContext.prefillUrl) return;
+    if (url) return;
+    setUrl(normalizeYouTubeUrl(extensionContext.prefillUrl));
+  }, [url]);
 
   useEffect(() => {
     if (user) setProfileName(user.fullName || user.firstName || "");
@@ -336,7 +343,11 @@ function App() {
     <main>
       <section className="offer-strip">
         <Sparkles size={16} />
-        <span>Logged-in users get unlimited transcription access for the next 7 days.</span>
+        <span>
+          {extensionContext.isEmbedded
+            ? "Opened from the Chrome side panel. The current YouTube URL has been prefilled for you."
+            : "Logged-in users get unlimited transcription access for the next 7 days."}
+        </span>
       </section>
 
       <header className="topbar">
@@ -871,6 +882,21 @@ function createMessage(role, content, sources = [], createdAt = new Date().toISO
     created_at: createdAt,
     sources: Array.isArray(sources) ? sources : [],
   };
+}
+
+function readExtensionContext() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      isEmbedded: params.get("embed") === "sidepanel",
+      prefillUrl: params.get("youtubeUrl") || "",
+    };
+  } catch {
+    return {
+      isEmbedded: false,
+      prefillUrl: "",
+    };
+  }
 }
 
 function getApiUrl(pathname) {
