@@ -14,13 +14,16 @@ import {
   Clipboard,
   Clock3,
   Download,
+  FileText,
   History,
   ImagePlus,
   Link2,
   Loader2,
   Menu,
+  MessageSquare,
   Play,
   Save,
+  Send,
   Sparkles,
   Trash2,
   User,
@@ -57,6 +60,9 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileMessageKind, setProfileMessageKind] = useState("success");
   const [copied, setCopied] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [question, setQuestion] = useState("");
 
   const activeTranscript = useMemo(
     () => transcripts.find((item) => item.id === activeId) ?? transcripts[0],
@@ -64,6 +70,10 @@ function App() {
   );
   const activeTranscriptText = useMemo(
     () => getTranscriptText(activeTranscript),
+    [activeTranscript],
+  );
+  const activeMessages = useMemo(
+    () => Array.isArray(activeTranscript?.messages) ? activeTranscript.messages : [],
     [activeTranscript],
   );
 
@@ -219,6 +229,105 @@ function App() {
       setProfileMessage(error?.message || "Profile picture update failed.");
     } finally {
       setProfileSaving(false);
+    }
+  }
+
+  async function handleSummarize() {
+    if (!activeTranscript || !isSignedIn || summaryLoading) return;
+
+    setSummaryLoading(true);
+    setMessage("");
+    try {
+      const token = await getToken();
+      const response = await fetch("/.netlify/functions/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          transcript_id: activeTranscript.id,
+          title: activeTranscript.title,
+          transcript_text: activeTranscript.transcript_text,
+          cached_summary: activeTranscript.summary || "",
+        }),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload.error || "Summary request failed.");
+
+      const nextItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+        summary: payload.summary,
+        summary_model: payload.model || activeTranscript.summary_model || "",
+        summary_created_at: payload.created_at || activeTranscript.summary_created_at || new Date().toISOString(),
+      });
+      setTranscripts(nextItems);
+      if (userId) writeHistory(userId, nextItems);
+    } catch (error) {
+      setMessageKind("error");
+      setMessage(error.message || "Failed to summarize transcript.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  async function handleAskQuestion(event) {
+    event.preventDefault();
+    if (!activeTranscript || !isSignedIn || chatLoading) return;
+
+    const nextQuestion = question.trim();
+    if (!nextQuestion) return;
+
+    setChatLoading(true);
+    setMessage("");
+
+    const optimisticUserMessage = createMessage("user", nextQuestion);
+    const optimisticMessages = [...activeMessages, optimisticUserMessage];
+    const optimisticItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+      messages: optimisticMessages,
+      thread_id: activeTranscript.thread_id || activeTranscript.id,
+    });
+    setTranscripts(optimisticItems);
+    if (userId) writeHistory(userId, optimisticItems);
+    setQuestion("");
+
+    try {
+      const token = await getToken();
+      const response = await fetch("/.netlify/functions/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          transcript_id: activeTranscript.id,
+          thread_id: activeTranscript.thread_id || activeTranscript.id,
+          title: activeTranscript.title,
+          question: nextQuestion,
+          transcript_text: activeTranscript.transcript_text,
+          messages: optimisticMessages,
+        }),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload.error || "Transcript chat failed.");
+
+      const assistantMessage = createMessage("assistant", payload.answer, payload.sources, payload.created_at);
+      const completedItems = updateTranscriptRecord(optimisticItems, activeTranscript.id, {
+        thread_id: payload.thread_id || activeTranscript.thread_id || activeTranscript.id,
+        messages: [...optimisticMessages, assistantMessage],
+      });
+      setTranscripts(completedItems);
+      if (userId) writeHistory(userId, completedItems);
+    } catch (error) {
+      const rolledBackItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+        messages: activeMessages,
+      });
+      setTranscripts(rolledBackItems);
+      if (userId) writeHistory(userId, rolledBackItems);
+      setQuestion(nextQuestion);
+      setMessageKind("error");
+      setMessage(error.message || "Failed to answer question.");
+    } finally {
+      setChatLoading(false);
     }
   }
 
@@ -433,6 +542,83 @@ function App() {
               )}
 
               <pre className="transcript-text">{activeTranscriptText}</pre>
+
+              <section className="ai-panel">
+                <div className="ai-panel-header">
+                  <div>
+                    <span className="eyebrow">AI summary</span>
+                    <h3>Summarize this transcript</h3>
+                  </div>
+                  <button
+                    className="pill-btn secondary"
+                    type="button"
+                    onClick={handleSummarize}
+                    disabled={summaryLoading || !isSignedIn}
+                  >
+                    {summaryLoading ? <Loader2 className="spin" size={16} /> : <FileText size={16} />}
+                    {summaryLoading ? "Generating summary" : activeTranscript.summary ? "Regenerate summary" : "Generate summary"}
+                  </button>
+                </div>
+                {activeTranscript.summary ? (
+                  <div className="summary-card">
+                    <p>{activeTranscript.summary}</p>
+                  </div>
+                ) : (
+                  <p className="muted">Generate an on-demand summary for the current transcript.</p>
+                )}
+              </section>
+
+              <section className="ai-panel">
+                <div className="ai-panel-header">
+                  <div>
+                    <span className="eyebrow">Transcript chat</span>
+                    <h3>Ask questions about this video</h3>
+                  </div>
+                  <MessageSquare size={18} />
+                </div>
+
+                <div className="chat-thread" aria-live="polite">
+                  {activeMessages.length === 0 ? (
+                    <p className="muted">
+                      Ask for action items, decisions, key takeaways, or any detail grounded in the transcript.
+                    </p>
+                  ) : (
+                    activeMessages.map((item) => (
+                      <article
+                        key={`${item.created_at}-${item.role}-${item.content.slice(0, 20)}`}
+                        className={`chat-bubble ${item.role === "assistant" ? "assistant" : "user"}`}
+                      >
+                        <span className="chat-role">{item.role === "assistant" ? "Assistant" : "You"}</span>
+                        <p>{item.content}</p>
+                        {item.role === "assistant" && Array.isArray(item.sources) && item.sources.length > 0 && (
+                          <div className="chat-sources">
+                            {item.sources.map((source) => (
+                              <div key={`${source.chunk_index}-${source.chunk_text.slice(0, 24)}`} className="source-chip">
+                                <strong>Chunk {source.chunk_index}</strong>
+                                <span>{source.chunk_text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
+
+                <form className="chat-form" onSubmit={handleAskQuestion}>
+                  <textarea
+                    value={question}
+                    onChange={(event) => setQuestion(event.target.value)}
+                    placeholder="Ask a question about this transcript..."
+                    rows={3}
+                    disabled={!isSignedIn || chatLoading}
+                  />
+                  <button type="submit" disabled={!isSignedIn || chatLoading || !question.trim()}>
+                    {chatLoading ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+                    {chatLoading ? "Getting answer" : "Get answer"}
+                  </button>
+                </form>
+              </section>
             </>
           ) : (
             <div className="empty-state">
@@ -574,6 +760,10 @@ function historyKey(userId) {
   return `transcript-ai:history:${userId}`;
 }
 
+function updateTranscriptRecord(items, transcriptId, updates) {
+  return items.map((item) => (item.id === transcriptId ? sanitizeTranscript({ ...item, ...updates }) : item));
+}
+
 function sanitizeTranscript(item) {
   if (!item || typeof item !== "object") return item;
 
@@ -583,6 +773,11 @@ function sanitizeTranscript(item) {
     video_id: videoId || item.video_id,
     thumbnail_url: item.thumbnail_url || (videoId ? getThumbnailUrl(videoId) : ""),
     transcript_text: getTranscriptText(item),
+    summary: typeof item.summary === "string" ? item.summary : "",
+    summary_model: typeof item.summary_model === "string" ? item.summary_model : "",
+    summary_created_at: item.summary_created_at || "",
+    thread_id: typeof item.thread_id === "string" ? item.thread_id : item.id,
+    messages: sanitizeMessages(item.messages),
   };
 }
 
@@ -644,6 +839,37 @@ function decodeHtmlEntities(value) {
   const textarea = document.createElement("textarea");
   textarea.innerHTML = value;
   return textarea.value;
+}
+
+function sanitizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages
+    .filter((message) => message && typeof message === "object")
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: typeof message.content === "string" ? message.content : "",
+      created_at: message.created_at || new Date().toISOString(),
+      sources: Array.isArray(message.sources)
+        ? message.sources
+            .filter((source) => source && typeof source === "object")
+            .map((source) => ({
+              chunk_index: source.chunk_index ?? 0,
+              chunk_text: typeof source.chunk_text === "string" ? source.chunk_text : "",
+            }))
+            .filter((source) => source.chunk_text)
+        : [],
+    }))
+    .filter((message) => message.content.trim());
+}
+
+function createMessage(role, content, sources = [], createdAt = new Date().toISOString()) {
+  return {
+    role,
+    content,
+    created_at: createdAt,
+    sources: Array.isArray(sources) ? sources : [],
+  };
 }
 
 createRoot(document.getElementById("root")).render(

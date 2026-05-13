@@ -1,4 +1,5 @@
 import { verifyToken } from "@clerk/backend";
+import { createJsonResponse } from "./_rag.js";
 
 const headers = {
   "Content-Type": "application/json",
@@ -33,6 +34,7 @@ export async function handler(event) {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const actorItems = await callApify(actorId, apifyToken, videoUrl);
     const normalized = normalizeActorResult(actorItems, videoUrl, videoId);
+    const transcriptId = createId();
 
     if (!normalized.transcript_text) {
       console.error("No transcript text extracted. Normalized data:", JSON.stringify(normalized).substring(0, 500));
@@ -47,9 +49,9 @@ export async function handler(event) {
       });
     }
 
-    return json(200, {
+    return createJsonResponse(200, {
       transcription: {
-        id: createId(),
+        id: transcriptId,
         video_id: videoId,
         video_url: videoUrl,
         thumbnail_url: getYouTubeThumbnailUrl(videoId),

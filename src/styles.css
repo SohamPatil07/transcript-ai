@@ -821,3 +821,157 @@ h2 {
     justify-content: flex-start;
   }
 }
+.ai-panel {
+  margin-top: 1.75rem;
+  padding: 1.25rem;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 252, 0.98));
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.ai-panel-header h3 {
+  margin: 0.3rem 0 0;
+}
+
+.pill-btn.secondary {
+  background: #fff;
+  color: #122033;
+  border: 1px solid rgba(18, 32, 51, 0.12);
+}
+
+.summary-card {
+  border-radius: 18px;
+  padding: 1rem 1.1rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(18, 32, 51, 0.08);
+}
+
+.summary-card p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-thread {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.chat-bubble {
+  padding: 1rem 1.05rem;
+  border-radius: 20px;
+  border: 1px solid rgba(18, 32, 51, 0.08);
+}
+
+.chat-bubble.user {
+  background: rgba(18, 32, 51, 0.06);
+}
+
+.chat-bubble.assistant {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.chat-bubble p {
+  margin: 0.45rem 0 0;
+  white-space: pre-wrap;
+}
+
+.chat-role {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(18, 32, 51, 0.72);
+}
+
+.chat-sources {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.source-chip {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  background: rgba(244, 247, 251, 0.95);
+  border: 1px solid rgba(18, 32, 51, 0.08);
+}
+
+.source-chip strong {
+  font-size: 0.8rem;
+}
+
+.source-chip span {
+  font-size: 0.92rem;
+  color: rgba(18, 32, 51, 0.84);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.chat-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.chat-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  border-radius: 18px;
+  border: 1px solid rgba(18, 32, 51, 0.12);
+  padding: 0.95rem 1rem;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+
+.chat-form textarea:focus {
+  outline: 2px solid rgba(53, 115, 237, 0.22);
+  border-color: rgba(53, 115, 237, 0.36);
+}
+
+.chat-form button {
+  justify-self: end;
+}
+
+@media (max-width: 720px) {
+  .ai-panel {
+    padding: 1rem;
+    border-radius: 20px;
+  }
+
+  .ai-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ai-panel-header .pill-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .chat-form button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .chat-bubble {
+    padding: 0.9rem;
+  }
+
+  .source-chip {
+    padding: 0.75rem 0.8rem;
+  }
+}
