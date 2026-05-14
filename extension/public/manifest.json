@@ -14,7 +14,7 @@
     "https://youtube.com/*",
     "https://m.youtube.com/*",
     "https://youtu.be/*",
-    "http://127.0.0.1:8888/*"
+    "https://ai-transcript.netlify.app/*"
   ],
   "action": {
     "default_title": "Open Transcript AI"
@@ -26,6 +26,6 @@
     "default_path": "sidepanel.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8888 https://api.clerk.com https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com; frame-src 'self' http://127.0.0.1:8888 https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://ai-transcript.netlify.app https://api.clerk.com https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com; frame-src 'self' https://ai-transcript.netlify.app https://*.clerk.accounts.dev https://*.clerk.dev https://*.clerk.com;"
   }
 }

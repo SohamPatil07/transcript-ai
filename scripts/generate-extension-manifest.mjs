@@ -3,7 +3,8 @@ import path from "node:path";
 
 const rootDir = process.cwd();
 const packageJsonPath = path.join(rootDir, "package.json");
-const envPath = path.join(rootDir, ".env");
+const isProduction = process.env.NODE_ENV === "production";
+const envPath = path.join(rootDir, isProduction ? ".env.production" : ".env");
 const manifestPath = path.join(rootDir, "extension", "public", "manifest.json");
 
 const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
