@@ -7,3 +7,4 @@ node_modules/
 dist/
 .netlify/
 dist-extension
+release/
