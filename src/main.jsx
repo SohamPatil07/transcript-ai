@@ -41,6 +41,25 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const apiBaseUrl = resolveApiBaseUrl();
 const extensionContext = readExtensionContext();
 
+// Listen for Electron load errors
+if (window.desktopApp?.onLoadError) {
+  window.desktopApp.onLoadError((error) => {
+    console.error("Electron load error:", error);
+    const root = document.getElementById("root");
+    if (root) {
+      root.innerHTML = `
+        <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
+          <h2>Application Load Error</h2>
+          <p>Error code: ${'${error.code}'}</p>
+          <p>Description: ${'${error.description}'}</p>
+          <p>Please check your internet connection or try restarting the application.</p>
+          <button onclick="location.reload()" style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Reload</button>
+        </div>
+      `;
+    }
+  });
+}
+
 if (!clerkKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env");
 }

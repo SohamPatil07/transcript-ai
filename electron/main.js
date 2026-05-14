@@ -31,6 +31,17 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription) => {
+    console.error("Failed to load:", errorCode, errorDescription);
+    if (!isDev) {
+      mainWindow.webContents.send("load-error", { code: errorCode, description: errorDescription });
+    }
+  });
+
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    console.error("Render process gone:", details);
+  });
+
   const externalHosts = ["youtube.com", "youtu.be", "clerk.com"];
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

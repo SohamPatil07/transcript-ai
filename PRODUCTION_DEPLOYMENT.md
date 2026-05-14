@@ -64,9 +64,27 @@ This URL is set in `.env.production` and used for:
 ]
 ```
 
-### Desktop app shows blank screen
-**Solution**: Check browser console in dev tools (Menu > View > Toggle Dev Tools)
-Look for API errors - they indicate the Netlify functions aren't responding correctly
+### Desktop app shows white/blank screen
+
+**Root causes and solutions:**
+
+1. **Asset path issues** (most common):
+   - The Vite build must use `base: './'` to generate relative asset paths
+   - Without this, the app tries to load assets from `/assets/...` which fails with `file://` protocol
+   - ✅ Fixed in `vite.config.js` - ensure `base: './'` is present
+
+2. **Missing environment variables**:
+   - The app requires `VITE_CLERK_PUBLISHABLE_KEY` to be set
+   - Check that your `.env` file (or environment variables in packaged app) contains this key
+
+3. **API connectivity issues**:
+   - Open DevTools (Menu > View > Toggle DevTools) and check the Console
+   - Look for errors about failed API calls
+   - Verify the desktop app can reach your backend (check `DESKTOP_API_BASE_URL` or `VITE_API_BASE_URL`)
+
+4. **Network/CORS issues**:
+   - The desktop app needs internet access for Clerk auth and API calls
+   - If behind a firewall, ensure the app can reach clerk.com and your API endpoints
 
 ### API calls return 401 errors
 **Solution**: Verify Clerk authentication is working:

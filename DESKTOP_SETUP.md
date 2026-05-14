@@ -9,6 +9,19 @@ This project now includes a Windows-first Electron wrapper around the existing R
 - Netlify functions stay the backend
 - Apify and Groq stay server-side
 
+## Critical Vite Configuration
+
+The `vite.config.js` must include `base: './'` for the desktop app to work:
+
+```js
+export default defineConfig({
+  plugins: [react()],
+  base: './',  // Required for Electron file:// protocol
+});
+```
+
+Without this, the built HTML references assets with absolute paths (`/assets/...`) which fail when loaded via `file://` protocol, causing a white screen.
+
 ## New scripts
 
 - `npm run desktop:dev`
