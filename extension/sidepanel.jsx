@@ -82,7 +82,7 @@ function ExtensionApp() {
           className="app-frame"
           src={embeddedAppUrl}
           title="Transcript AI"
-          allow="clipboard-read; clipboard-write"
+          allow="clipboard-read; clipboard-write; identity-credentials-get; publickey-credentials-get"
         />
       ) : (
         <section className="empty-frame">

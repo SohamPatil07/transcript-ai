@@ -52,8 +52,8 @@ if (window.desktopApp?.onLoadError) {
       root.innerHTML = `
         <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
           <h2>Application Load Error</h2>
-          <p>Error code: ${'${error.code}'}</p>
-          <p>Description: ${'${error.description}'}</p>
+          <p>Error code: ${error.code}</p>
+          <p>Description: ${error.description}</p>
           <p>Please check your internet connection or try restarting the application.</p>
           <button onclick="location.reload()" style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Reload</button>
         </div>
@@ -379,8 +379,10 @@ function App() {
 
         <div className="account">
           <SignedOut>
-            <SignUpButton mode="modal">
-              <button className="pill-btn" type="button">Login</button>
+            <SignUpButton mode={isDesktop || extensionContext.isEmbedded ? "redirect" : "modal"}>
+              <button className="pill-btn" type="button">
+                Login
+              </button>
             </SignUpButton>
           </SignedOut>
           <SignedIn>

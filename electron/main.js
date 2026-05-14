@@ -29,10 +29,12 @@ function startStaticServer(distPath) {
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      let filePath = path.join(distPath, req.url === "/" ? "index.html" : req.url);
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      let filePath = path.join(distPath, url.pathname === "/" ? "index.html" : url.pathname);
 
       // SPA fallback - serve index.html for non-file routes (for Clerk redirects)
-      if (!existsSync(filePath)) {
+      // SPA fallback - serve index.html for non-file routes (for Clerk redirects)
+      if (!existsSync(filePath) || (!path.extname(filePath) && !url.pathname.endsWith("/"))) {
         filePath = path.join(distPath, "index.html");
       }
 
@@ -89,18 +91,24 @@ function createWindow() {
     console.error("Render process gone:", details);
   });
 
-  const externalHosts = ["youtube.com", "youtu.be", "clerk.com", "accounts.dev", "clerk.accounts.dev"];
+  const externalHosts = ["youtube.com", "youtu.be"];
 
   // Handle Clerk auth popup windows within Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const urlObj = new URL(url);
-    // Allow Clerk auth windows to open inside Electron
+    // Allow Clerk and Google auth windows to open inside Electron
     if (
       urlObj.hostname.includes("clerk.com") ||
       urlObj.hostname.includes("accounts.dev") ||
-      urlObj.hostname.includes("clerk.accounts.dev")
+      urlObj.hostname.includes("clerk.accounts.dev") ||
+      urlObj.hostname.includes("accounts.google.com")
     ) {
-      return { action: "allow" };
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+        },
+      };
     }
     // Allow the app's own URLs to open in Electron
     if (isDev && url.startsWith(process.env.ELECTRON_START_URL)) {
