@@ -40,6 +40,8 @@ import "./styles.css";
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const apiBaseUrl = resolveApiBaseUrl();
 const extensionContext = readExtensionContext();
+const isDesktop = Boolean(window.desktopApp?.isDesktop);
+const baseOrigin = window.location.origin;
 
 // Listen for Electron load errors
 if (window.desktopApp?.onLoadError) {

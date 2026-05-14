@@ -1,6 +1,8 @@
-import { app, BrowserWindow, Menu, shell } from "electron";
+import { app, BrowserWindow, Menu, shell, protocol } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
+import { readFileSync, existsSync } from "node:fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,6 +11,50 @@ app.setPath("userData", path.join(app.getPath("appData"), "Transcript AI"));
 app.setPath("sessionData", path.join(app.getPath("userData"), "session"));
 
 const isDev = Boolean(process.env.ELECTRON_START_URL);
+
+// Serve static files via HTTP in production (required for Clerk OAuth redirects)
+function startStaticServer(distPath) {
+  const mimeTypes = {
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".ico": "image/x-icon",
+    ".json": "application/json",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+  };
+
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      let filePath = path.join(distPath, req.url === "/" ? "index.html" : req.url);
+
+      // SPA fallback - serve index.html for non-file routes (for Clerk redirects)
+      if (!existsSync(filePath)) {
+        filePath = path.join(distPath, "index.html");
+      }
+
+      try {
+        const content = readFileSync(filePath);
+        const ext = path.extname(filePath);
+        res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+        res.end(content);
+      } catch {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+    });
+
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      console.log(`Static server running at http://127.0.0.1:${port}`);
+      resolve(`http://127.0.0.1:${port}`);
+    });
+    server.on("error", reject);
+  });
+}
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -23,7 +69,8 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
+      webSecurity: true,
     },
   });
 
@@ -42,17 +89,31 @@ function createWindow() {
     console.error("Render process gone:", details);
   });
 
-  const externalHosts = ["youtube.com", "youtu.be", "clerk.com"];
+  const externalHosts = ["youtube.com", "youtu.be", "clerk.com", "accounts.dev", "clerk.accounts.dev"];
 
+  // Handle Clerk auth popup windows within Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const urlObj = new URL(url);
+    // Allow Clerk auth windows to open inside Electron
+    if (
+      urlObj.hostname.includes("clerk.com") ||
+      urlObj.hostname.includes("accounts.dev") ||
+      urlObj.hostname.includes("clerk.accounts.dev")
+    ) {
+      return { action: "allow" };
+    }
+    // Allow the app's own URLs to open in Electron
+    if (isDev && url.startsWith(process.env.ELECTRON_START_URL)) {
+      return { action: "allow" };
+    }
+    // For other external URLs, open in system browser
     shell.openExternal(url);
     return { action: "deny" };
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const allowedDevOrigin = process.env.ELECTRON_START_URL;
-    const sameDevOrigin =
-      allowedDevOrigin && url.startsWith(allowedDevOrigin.replace(/\/$/, ""));
+    const sameDevOrigin = allowedDevOrigin && url.startsWith(allowedDevOrigin.replace(/\/$/, ""));
 
     if (sameDevOrigin) return;
 
@@ -70,7 +131,14 @@ function createWindow() {
   if (isDev) {
     mainWindow.loadURL(process.env.ELECTRON_START_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    // Start local HTTP server and load from there (required for Clerk OAuth)
+    startStaticServer(path.join(__dirname, "..", "dist")).then((serverUrl) => {
+      mainWindow.loadURL(serverUrl);
+    }).catch((err) => {
+      console.error("Failed to start static server:", err);
+      // Fallback to file:// (won't support Clerk auth but shows the UI)
+      mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    });
   }
 }
 
