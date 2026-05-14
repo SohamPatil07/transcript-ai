@@ -33,6 +33,7 @@ const connectSrc = unique([
   normalizeOrigin(backendBaseUrl),
   "https://api.clerk.com",
   "https://*.clerk.accounts.dev",
+  "https://*.accounts.dev",
   "https://*.clerk.dev",
   "https://*.clerk.com",
 ]);
@@ -41,8 +42,10 @@ const frameSrc = unique([
   "'self'",
   normalizeOrigin(appBaseUrl),
   "https://*.clerk.accounts.dev",
+  "https://*.accounts.dev",
   "https://*.clerk.dev",
   "https://*.clerk.com",
+  "https://accounts.google.com",
 ]);
 
 const manifest = {
