@@ -3,23 +3,20 @@ import path from "node:path";
 
 const rootDir = process.cwd();
 const packageJsonPath = path.join(rootDir, "package.json");
-const isProduction = process.env.NODE_ENV === "production";
+const cliMode = readCliMode(process.argv.slice(2));
+const isProduction = cliMode === "production";
 const envPath = path.join(rootDir, isProduction ? ".env.production" : ".env");
 const manifestPath = path.join(rootDir, "extension", "public", "manifest.json");
 
 const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
 const env = await readEnvFile(envPath);
+const productionConfig = packageJson.transcriptAi || {};
 
 const backendBaseUrl =
   env.VITE_EXTENSION_API_BASE_URL ||
+  productionConfig.productionApiUrl ||
   env.VITE_API_BASE_URL ||
   "http://127.0.0.1:8888";
-const appBaseUrl =
-  env.VITE_EXTENSION_APP_URL ||
-  env.VITE_EXTENSION_API_BASE_URL ||
-  env.VITE_API_BASE_URL ||
-  "http://127.0.0.1:8888";
-
 const hostPermissions = unique([
   "https://www.youtube.com/*",
   "https://youtube.com/*",
@@ -31,21 +28,10 @@ const hostPermissions = unique([
 const connectSrc = unique([
   "'self'",
   normalizeOrigin(backendBaseUrl),
-  "https://api.clerk.com",
-  "https://*.clerk.accounts.dev",
-  "https://*.accounts.dev",
-  "https://*.clerk.dev",
-  "https://*.clerk.com",
 ]);
 
 const frameSrc = unique([
   "'self'",
-  normalizeOrigin(appBaseUrl),
-  "https://*.clerk.accounts.dev",
-  "https://*.accounts.dev",
-  "https://*.clerk.dev",
-  "https://*.clerk.com",
-  "https://accounts.google.com",
 ]);
 
 const manifest = {
@@ -71,6 +57,15 @@ const manifest = {
 
 await fs.mkdir(path.dirname(manifestPath), { recursive: true });
 await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+function readCliMode(args) {
+  const modeIndex = args.indexOf("--mode");
+  if (modeIndex >= 0 && args[modeIndex + 1]) {
+    return args[modeIndex + 1] === "production" ? "production" : "development";
+  }
+
+  return process.env.NODE_ENV === "production" ? "production" : "development";
+}
 
 async function readEnvFile(targetPath) {
   try {

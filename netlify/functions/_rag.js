@@ -13,6 +13,7 @@ export {
   findTranscriptMatchesLocally,
   generateChatAnswer,
   generateSummary,
+  isExtensionRequest,
   normalizeChatHistory,
 };
 
@@ -20,7 +21,7 @@ function createCorsHeaders(origin = "*") {
   return {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Extension-Request",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   };
 }
@@ -31,6 +32,20 @@ function createJsonResponse(statusCode, body, origin = "*") {
     headers: createCorsHeaders(origin),
     body: JSON.stringify(body),
   };
+}
+
+function isExtensionRequest(headers = {}) {
+  const extensionHeader =
+    headers["x-extension-request"] ||
+    headers["X-Extension-Request"] ||
+    headers["x-extension-request".toLowerCase()];
+
+  if (String(extensionHeader).toLowerCase() === "true") {
+    return true;
+  }
+
+  const origin = headers.origin || headers.Origin || "";
+  return typeof origin === "string" && origin.startsWith("chrome-extension://");
 }
 
 async function generateSummary({ title, transcriptText }) {
@@ -176,7 +191,10 @@ function findTranscriptMatchesLocally({ transcriptText, question, topK = MAX_SOU
   const usefulChunks = rankedChunks.filter((chunk) => chunk.score > 0);
   const selected = usefulChunks.length > 0 ? usefulChunks : rankedChunks;
 
-  return selected.map(({ score, ...chunk }) => chunk);
+  return selected.map(({ chunk_text, chunk_index }) => ({
+    chunk_text,
+    chunk_index,
+  }));
 }
 
 function normalizeChatHistory(messages) {

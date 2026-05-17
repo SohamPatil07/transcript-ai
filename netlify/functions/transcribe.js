@@ -1,9 +1,5 @@
 import { verifyToken } from "@clerk/backend";
-import { createCorsHeaders, createJsonResponse } from "./_rag.js";
-
-const headers = {
-  "Content-Type": "application/json",
-};
+import { createCorsHeaders, createJsonResponse, isExtensionRequest } from "./_rag.js";
 
 export async function handler(event) {
   const origin = event.headers.origin || "*";
@@ -27,13 +23,17 @@ export async function handler(event) {
   if (!apifyToken) return createJsonResponse(500, { error: "Missing APIFY_TOKEN." }, origin);
   if (!clerkSecretKey) return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." }, origin);
 
-  const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!token) return createJsonResponse(401, { error: "Sign in before transcribing." }, origin);
+  const extensionRequest = isExtensionRequest(event.headers);
 
-  try {
-    await verifyToken(token, { secretKey: clerkSecretKey });
-  } catch {
-    return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+  if (!extensionRequest) {
+    const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
+    if (!token) return createJsonResponse(401, { error: "Sign in before transcribing." }, origin);
+
+    try {
+      await verifyToken(token, { secretKey: clerkSecretKey });
+    } catch {
+      return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+    }
   }
 
   const body = JSON.parse(event.body || "{}");
@@ -81,53 +81,45 @@ async function callApify(actorId, token, videoUrl) {
   const actorPath = actorId.replace("/", "~");
   const apiUrl = `https://api.apify.com/v2/acts/${actorPath}/run-sync-get-dataset-items?token=${token}&timeout=180`;
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        urls: [{ url: videoUrl }],
-        outputFormat: "json",
-        languages: ["en"],
-      }),
-    });
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      urls: [{ url: videoUrl }],
+      outputFormat: "json",
+      languages: ["en"],
+    }),
+  });
 
-    // Check if response is ok before parsing
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = "Apify actor failed.";
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson?.error?.message || errorJson?.message || errorText;
-      } catch {
-        errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    // Parse successful response
-    const text = await response.text();
-    
-    if (!text || text.trim() === "") {
-      throw new Error("Apify actor returned an empty response. The video may not have available captions.");
-    }
-
-    let payload;
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = "Apify actor failed.";
     try {
-      payload = JSON.parse(text);
-    } catch (parseError) {
-      console.error("Failed to parse Apify response:", text.substring(0, 500));
-      throw new Error("Invalid JSON response from Apify. The video may not have available captions.");
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson?.error?.message || errorJson?.message || errorText;
+    } catch {
+      errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
     }
-
-    // Log the raw response structure for debugging
-    console.log("Apify response received. Type:", Array.isArray(payload) ? "array" : typeof payload);
-    console.log("Response structure:", JSON.stringify(payload).substring(0, 300) + "...");
-
-    return Array.isArray(payload) ? payload : [payload];
-  } catch (error) {
-    throw error;
+    throw new Error(errorMessage);
   }
+
+  const text = await response.text();
+  if (!text || text.trim() === "") {
+    throw new Error("Apify actor returned an empty response. The video may not have available captions.");
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    console.error("Failed to parse Apify response:", text.substring(0, 500));
+    throw new Error("Invalid JSON response from Apify. The video may not have available captions.");
+  }
+
+  console.log("Apify response received. Type:", Array.isArray(payload) ? "array" : typeof payload);
+  console.log("Response structure:", JSON.stringify(payload).substring(0, 300) + "...");
+
+  return Array.isArray(payload) ? payload : [payload];
 }
 
 function normalizeActorResult(items, videoUrl, videoId) {

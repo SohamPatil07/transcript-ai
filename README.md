@@ -153,8 +153,8 @@ Create a `.env` file in the project root:
 
 ```env
 # Clerk Authentication (get from https://dashboard.clerk.com)
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
-CLERK_SECRET_KEY=sk_test_your_secret_here
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key_here
+CLERK_SECRET_KEY=your_clerk_secret_key_here
 
 # Apify API (get from https://apify.com/account/integrations)
 APIFY_TOKEN=your_apify_token_here

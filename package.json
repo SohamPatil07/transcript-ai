@@ -2,6 +2,8 @@
   "name": "transcript-ai",
   "private": true,
   "version": "0.1.0",
+  "description": "AI-powered YouTube transcript extraction across web, desktop, and Chrome extension surfaces.",
+  "author": "Transcript AI",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -13,10 +15,16 @@
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "desktop:build": "vite build",
     "desktop:dist": "vite build && electron-builder --win nsis",
-    "extension:prepare": "node scripts/generate-extension-manifest.mjs",
-    "extension:dev": "npm run extension:prepare && vite build --watch --config extension/vite.config.mjs",
-    "extension:build": "npm run extension:prepare && vite build --config extension/vite.config.mjs",
+    "extension:prepare": "node scripts/generate-extension-manifest.mjs --mode development",
+    "extension:prepare:dev": "node scripts/generate-extension-manifest.mjs --mode development",
+    "extension:prepare:prod": "node scripts/generate-extension-manifest.mjs --mode production",
+    "extension:dev": "npm run extension:prepare:dev && vite build --watch --config extension/vite.config.mjs",
+    "extension:build": "npm run extension:prepare:prod && vite build --config extension/vite.config.mjs",
     "extension:pack": "npm run extension:build"
+  },
+  "transcriptAi": {
+    "productionAppUrl": "https://ai-transcript.netlify.app",
+    "productionApiUrl": "https://ai-transcript.netlify.app"
   },
   "dependencies": {
     "@clerk/backend": "2.10.1",

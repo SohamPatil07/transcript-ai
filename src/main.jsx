@@ -41,7 +41,8 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const apiBaseUrl = resolveApiBaseUrl();
 const extensionContext = readExtensionContext();
 const isDesktop = Boolean(window.desktopApp?.isDesktop);
-const baseOrigin = window.location.origin;
+const isExtension = extensionContext.isEmbedded;
+const usesGuestMode = isExtension;
 
 // Listen for Electron load errors
 if (window.desktopApp?.onLoadError) {
@@ -62,13 +63,14 @@ if (window.desktopApp?.onLoadError) {
   });
 }
 
-if (!clerkKey) {
+// Only require Clerk if not in extension (extension uses anonymous access)
+if (!isExtension && !clerkKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env");
 }
 
-function App() {
-  const { isLoaded, isSignedIn, getToken, userId } = useAuth();
-  const { user } = useUser();
+function AppShell({ auth }) {
+  const { usesGuestMode, isLoaded, isSignedIn, getToken, userId, user } = auth;
+
   const [url, setUrl] = useState("");
   const [transcripts, setTranscripts] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -154,20 +156,28 @@ function App() {
       return;
     }
 
-    if (!isSignedIn) {
+    // For web app (non-extension), require sign in
+    if (!usesGuestMode && !isSignedIn) {
       setMessage("Sign in to start your free transcription.");
       return;
     }
 
     setLoading(true);
     try {
-      const token = await getToken();
+      const headers = {
+        "Content-Type": "application/json",
+      };
+
+      if (usesGuestMode) {
+        headers["X-Extension-Request"] = "true";
+      } else {
+        const token = await getToken();
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       const response = await fetch(getApiUrl("/.netlify/functions/transcribe"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({ url: normalizeYouTubeUrl(url) }),
       });
       const payload = await readJsonResponse(response);
@@ -185,95 +195,108 @@ function App() {
         throw new Error(errorMsg);
       }
 
-      const nextItems = [sanitizeTranscript(payload.transcription), ...transcripts];
-      setTranscripts(nextItems);
-      setActiveId(payload.transcription.id);
-      writeHistory(userId, nextItems);
-      setUrl("");
-    } catch (error) {
-      setMessage(error.message);
-    } finally {
-      setLoading(false);
+  const nextItems = [sanitizeTranscript(payload.transcription), ...transcripts];
+  setTranscripts(nextItems);
+  setActiveId(payload.transcription.id);
+  writeHistory(userId, nextItems);
+  setUrl("");
+} catch (error) {
+  setMessage(error.message);
+} finally {
+  setLoading(false);
+}
+  }
+
+function deleteTranscript(id) {
+  const nextItems = transcripts.filter((item) => item.id !== id);
+  setTranscripts(nextItems);
+  setActiveId(nextItems[0]?.id ?? null);
+  if (userId) writeHistory(userId, nextItems);
+}
+
+async function copyTranscript() {
+  if (!activeTranscript) return;
+  try {
+    await navigator.clipboard.writeText(activeTranscript.transcript_text);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  } catch (error) {
+    setMessageKind("error");
+    setMessage(error?.message || "Copy failed. Please try again.");
+  }
+}
+
+async function updateProfile(event) {
+  event.preventDefault();
+  if (!user || profileSaving) return;
+
+  setProfileSaving(true);
+  setProfileMessage("");
+  try {
+    const [firstName, ...rest] = profileName.trim().split(/\s+/).filter(Boolean);
+    await user.update({
+      firstName: firstName || "",
+      lastName: rest.join(" "),
+    });
+    await user.reload();
+    setProfileMessageKind("success");
+    setProfileMessage("Profile updated");
+  } catch (error) {
+    setProfileMessageKind("error");
+    setProfileMessage(error?.message || "Profile update failed.");
+  } finally {
+    setProfileSaving(false);
+  }
+}
+
+async function uploadAvatar(event) {
+  const file = event.target.files?.[0];
+  if (!file || !user) return;
+
+  setProfileSaving(true);
+  setProfileMessage("");
+  try {
+    if (typeof user.setProfileImage !== "function") {
+      throw new Error("Profile image upload is unavailable for this Clerk session.");
     }
+    await user.setProfileImage({ file });
+    await user.reload();
+    setProfileMessageKind("success");
+    setProfileMessage("Profile picture updated");
+  } catch (error) {
+    setProfileMessageKind("error");
+    setProfileMessage(error?.message || "Profile picture update failed.");
+  } finally {
+    setProfileSaving(false);
+  }
+}
+
+async function handleSummarize() {
+  if (!activeTranscript || summaryLoading) return;
+
+  // For web app, require sign in
+  if (!usesGuestMode && !isSignedIn) {
+    setMessage("Sign in to summarize transcripts.");
+    return;
   }
 
-  function deleteTranscript(id) {
-    const nextItems = transcripts.filter((item) => item.id !== id);
-    setTranscripts(nextItems);
-    setActiveId(nextItems[0]?.id ?? null);
-    if (userId) writeHistory(userId, nextItems);
-  }
+  setSummaryLoading(true);
+  setMessage("");
+  try {
+    const headers = {
+        "Content-Type": "application/json",
+      };
 
-  async function copyTranscript() {
-    if (!activeTranscript) return;
-    try {
-      await navigator.clipboard.writeText(activeTranscript.transcript_text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(error?.message || "Copy failed. Please try again.");
-    }
-  }
-
-  async function updateProfile(event) {
-    event.preventDefault();
-    if (!user || profileSaving) return;
-
-    setProfileSaving(true);
-    setProfileMessage("");
-    try {
-      const [firstName, ...rest] = profileName.trim().split(/\s+/).filter(Boolean);
-      await user.update({
-        firstName: firstName || "",
-        lastName: rest.join(" "),
-      });
-      await user.reload();
-      setProfileMessageKind("success");
-      setProfileMessage("Profile updated");
-    } catch (error) {
-      setProfileMessageKind("error");
-      setProfileMessage(error?.message || "Profile update failed.");
-    } finally {
-      setProfileSaving(false);
-    }
-  }
-
-  async function uploadAvatar(event) {
-    const file = event.target.files?.[0];
-    if (!file || !user) return;
-
-    setProfileSaving(true);
-    setProfileMessage("");
-    try {
-      if (typeof user.setProfileImage !== "function") {
-        throw new Error("Profile image upload is unavailable for this Clerk session.");
+      if (usesGuestMode) {
+        headers["X-Extension-Request"] = "true";
+      } else {
+        const token = await getToken();
+        headers.Authorization = `Bearer ${token}`;
       }
-      await user.setProfileImage({ file });
-      await user.reload();
-      setProfileMessageKind("success");
-      setProfileMessage("Profile picture updated");
-    } catch (error) {
-      setProfileMessageKind("error");
-      setProfileMessage(error?.message || "Profile picture update failed.");
-    } finally {
-      setProfileSaving(false);
-    }
-  }
 
-  async function handleSummarize() {
-    if (!activeTranscript || !isSignedIn || summaryLoading) return;
-
-    setSummaryLoading(true);
-    setMessage("");
-    try {
-      const token = await getToken();
-      const response = await fetch(getApiUrl("/.netlify/functions/summarize"), {
+    const response = await fetch(getApiUrl("/.netlify/functions/summarize"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           transcript_id: activeTranscript.id,
           title: activeTranscript.title,
@@ -281,52 +304,59 @@ function App() {
           cached_summary: activeTranscript.summary || "",
         }),
       });
-      const payload = await readJsonResponse(response);
-      if (!response.ok) throw new Error(payload.error || "Summary request failed.");
+    const payload = await readJsonResponse(response);
+  if (!response.ok) throw new Error(payload.error || "Summary request failed.");
 
-      const nextItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
-        summary: payload.summary,
-        summary_model: payload.model || activeTranscript.summary_model || "",
-        summary_created_at: payload.created_at || activeTranscript.summary_created_at || new Date().toISOString(),
-      });
-      setTranscripts(nextItems);
-      if (userId) writeHistory(userId, nextItems);
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(error.message || "Failed to summarize transcript.");
-    } finally {
-      setSummaryLoading(false);
-    }
-  }
+  const nextItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+    summary: payload.summary,
+    summary_model: payload.model || activeTranscript.summary_model || "",
+    summary_created_at: payload.created_at || activeTranscript.summary_created_at || new Date().toISOString(),
+  });
+  setTranscripts(nextItems);
+  if (userId) writeHistory(userId, nextItems);
+} catch (error) {
+  setMessageKind("error");
+  setMessage(error.message || "Failed to summarize transcript.");
+} finally {
+  setSummaryLoading(false);
+}
+}
 
-  async function handleAskQuestion(event) {
-    event.preventDefault();
-    if (!activeTranscript || !isSignedIn || chatLoading) return;
+async function handleAskQuestion(event) {
+  event.preventDefault();
+  if (!activeTranscript || !isSignedIn || chatLoading) return;
 
-    const nextQuestion = question.trim();
-    if (!nextQuestion) return;
+  const nextQuestion = question.trim();
+  if (!nextQuestion) return;
 
-    setChatLoading(true);
-    setMessage("");
+  setChatLoading(true);
+  setMessage("");
 
-    const optimisticUserMessage = createMessage("user", nextQuestion);
-    const optimisticMessages = [...activeMessages, optimisticUserMessage];
-    const optimisticItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
-      messages: optimisticMessages,
-      thread_id: activeTranscript.thread_id || activeTranscript.id,
-    });
-    setTranscripts(optimisticItems);
-    if (userId) writeHistory(userId, optimisticItems);
-    setQuestion("");
+  const optimisticUserMessage = createMessage("user", nextQuestion);
+  const optimisticMessages = [...activeMessages, optimisticUserMessage];
+  const optimisticItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+    messages: optimisticMessages,
+    thread_id: activeTranscript.thread_id || activeTranscript.id,
+  });
+  setTranscripts(optimisticItems);
+  if (userId) writeHistory(userId, optimisticItems);
+  setQuestion("");
 
-    try {
-      const token = await getToken();
+  try {
+      const headers = {
+        "Content-Type": "application/json",
+      };
+
+      if (usesGuestMode) {
+        headers["X-Extension-Request"] = "true";
+      } else {
+        const token = await getToken();
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       const response = await fetch(getApiUrl("/.netlify/functions/chat"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           transcript_id: activeTranscript.id,
           thread_id: activeTranscript.thread_id || activeTranscript.id,
@@ -336,50 +366,51 @@ function App() {
           messages: optimisticMessages,
         }),
       });
-      const payload = await readJsonResponse(response);
-      if (!response.ok) throw new Error(payload.error || "Transcript chat failed.");
+    const payload = await readJsonResponse(response);
+    if (!response.ok) throw new Error(payload.error || "Transcript chat failed.");
 
-      const assistantMessage = createMessage("assistant", payload.answer, payload.sources, payload.created_at);
-      const completedItems = updateTranscriptRecord(optimisticItems, activeTranscript.id, {
-        thread_id: payload.thread_id || activeTranscript.thread_id || activeTranscript.id,
-        messages: [...optimisticMessages, assistantMessage],
-      });
-      setTranscripts(completedItems);
-      if (userId) writeHistory(userId, completedItems);
-    } catch (error) {
-      const rolledBackItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
-        messages: activeMessages,
-      });
-      setTranscripts(rolledBackItems);
-      if (userId) writeHistory(userId, rolledBackItems);
-      setQuestion(nextQuestion);
-      setMessageKind("error");
-      setMessage(error.message || "Failed to answer question.");
-    } finally {
-      setChatLoading(false);
-    }
+    const assistantMessage = createMessage("assistant", payload.answer, payload.sources, payload.created_at);
+    const completedItems = updateTranscriptRecord(optimisticItems, activeTranscript.id, {
+      thread_id: payload.thread_id || activeTranscript.thread_id || activeTranscript.id,
+      messages: [...optimisticMessages, assistantMessage],
+    });
+    setTranscripts(completedItems);
+    if (userId) writeHistory(userId, completedItems);
+  } catch (error) {
+    const rolledBackItems = updateTranscriptRecord(transcripts, activeTranscript.id, {
+      messages: activeMessages,
+    });
+    setTranscripts(rolledBackItems);
+    if (userId) writeHistory(userId, rolledBackItems);
+    setQuestion(nextQuestion);
+    setMessageKind("error");
+    setMessage(error.message || "Failed to answer question.");
+  } finally {
+    setChatLoading(false);
   }
+}
 
-  return (
-    <main>
-      <section className="offer-strip">
-        <Sparkles size={16} />
-        <span>
-          {extensionContext.isEmbedded
-            ? "Opened from the Chrome side panel. The current YouTube URL has been prefilled for you."
-            : "Logged-in users get unlimited transcription access for the next 7 days."}
-        </span>
-      </section>
+return (
+  <main>
+    <section className="offer-strip">
+      <Sparkles size={16} />
+      <span>
+        {extensionContext.isEmbedded
+          ? "Opened from the Chrome side panel. The current YouTube URL has been prefilled for you."
+          : "Logged-in users get unlimited transcription access for the next 7 days."}
+      </span>
+    </section>
 
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Transcript AI home">
-          <span className="brand-mark">T</span>
-          <span>Transcript AI</span>
-        </a>
+    <header className="topbar">
+      <a className="brand" href="/" aria-label="Transcript AI home">
+        <span className="brand-mark">T</span>
+        <span>Transcript AI</span>
+      </a>
 
+      {!usesGuestMode && (
         <div className="account">
           <SignedOut>
-            <SignUpButton mode={isDesktop || extensionContext.isEmbedded ? "redirect" : "modal"}>
+            <SignUpButton mode={isDesktop ? "redirect" : "modal"}>
               <button className="pill-btn" type="button">
                 Login
               </button>
@@ -389,32 +420,34 @@ function App() {
             <UserButton afterSignOutUrl="/" />
           </SignedIn>
         </div>
+      )}
 
-        <div className="nav-menu-wrap">
-          <button
-            className="icon-btn menu-btn"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setMenuOpen((value) => !value);
-            }}
-            aria-label="Open menu"
-            aria-expanded={menuOpen}
-          >
-            <Menu size={20} />
-          </button>
-          {menuOpen && (
-            <nav className="nav-menu" aria-label="App menu">
-              <button
-                type="button"
-                onClick={() => {
-                  setHistoryOpen(true);
-                  setMenuOpen(false);
-                }}
-              >
-                <History size={17} />
-                History
-              </button>
+      <div className="nav-menu-wrap">
+        <button
+          className="icon-btn menu-btn"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuOpen((value) => !value);
+          }}
+          aria-label="Open menu"
+          aria-expanded={menuOpen}
+        >
+          <Menu size={20} />
+        </button>
+        {menuOpen && (
+          <nav className="nav-menu" aria-label="App menu">
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryOpen(true);
+                setMenuOpen(false);
+              }}
+            >
+              <History size={17} />
+              History
+            </button>
+            {!usesGuestMode && (
               <button
                 type="button"
                 onClick={() => {
@@ -425,113 +458,68 @@ function App() {
                 <User size={17} />
                 Profile
               </button>
-            </nav>
-          )}
-        </div>
-      </header>
+            )}
+          </nav>
+        )}
+      </div>
+    </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="eyebrow">YouTube to clean text</span>
-          <h1>Paste a video link. Get the transcript.</h1>
-          <p>
-            Paste any YouTube URL format and turn public captions into searchable text with history,
-            downloads, and one-click copy.
-          </p>
-        </div>
+    <section className="hero">
+      <div className="hero-copy">
+        <span className="eyebrow">YouTube to clean text</span>
+        <h1>Paste a video link. Get the transcript.</h1>
+        <p>
+          Paste any YouTube URL format and turn public captions into searchable text with history,
+          downloads, and one-click copy.
+        </p>
+      </div>
 
-        <form className="search-shell" onSubmit={handleSubmit}>
-          <Link2 className="search-icon" size={22} />
-          <input
-            aria-label="YouTube video URL"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="Paste YouTube URL, shorts link or video ID"
-            autoComplete="off"
-          />
-          <button type="submit" disabled={loading || !isLoaded}>
-            {loading ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-            {loading ? "Extracting" : "Transcribe"}
-          </button>
-        </form>
+      <form className="search-shell" onSubmit={handleSubmit}>
+        <Link2 className="search-icon" size={22} />
+        <input
+          aria-label="YouTube video URL"
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder="Paste YouTube URL, shorts link or video ID"
+          autoComplete="off"
+        />
+        <button type="submit" disabled={loading || !isLoaded}>
+          {loading ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
+          {loading ? "Extracting" : "Transcribe"}
+        </button>
+      </form>
 
-        {message && <p className={`notice ${messageKind}`}>{message}</p>}
+      {message && <p className={`notice ${messageKind}`}>{message}</p>}
 
-        {(loading || activeTranscript) && (
-          <article className="hero-result" aria-live="polite">
-            {loading ? (
-              <div className="extracting-state">
-                <Loader2 className="spin" size={22} />
-                <span>Extracting transcript...</span>
-              </div>
-            ) : (
-              <>
-                <div className="hero-result-heading">
-                  <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-                    {activeTranscript.thumbnail_url && (
-                      <img
-                        src={activeTranscript.thumbnail_url}
-                        alt={activeTranscript.title || "Video thumbnail"}
-                        loading="lazy"
-                        style={{
-                          width: "120px",
-                          aspectRatio: "16 / 9",
-                          objectFit: "cover",
-                          borderRadius: "16px",
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    <div>
+      {(loading || activeTranscript) && (
+        <article className="hero-result" aria-live="polite">
+          {loading ? (
+            <div className="extracting-state">
+              <Loader2 className="spin" size={22} />
+              <span>Extracting transcript...</span>
+            </div>
+          ) : (
+            <>
+              <div className="hero-result-heading">
+                <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+                  {activeTranscript.thumbnail_url && (
+                    <img
+                      src={activeTranscript.thumbnail_url}
+                      alt={activeTranscript.title || "Video thumbnail"}
+                      loading="lazy"
+                      style={{
+                        width: "120px",
+                        aspectRatio: "16 / 9",
+                        objectFit: "cover",
+                        borderRadius: "16px",
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <div>
                     <span className="eyebrow">Latest transcript</span>
                     <h2>{activeTranscript.title || "Untitled video"}</h2>
-                    </div>
                   </div>
-                  <div className="actions">
-                    <button className="icon-btn" type="button" onClick={copyTranscript} aria-label="Copy transcript">
-                      {copied ? <Check size={18} /> : <Clipboard size={18} />}
-                    </button>
-                    <button
-                      className="icon-btn"
-                      type="button"
-                      onClick={() => downloadTranscript(activeTranscript)}
-                      aria-label="Download transcript"
-                    >
-                      <Download size={18} />
-                    </button>
-                  </div>
-                </div>
-                <pre className="hero-transcript-text">{activeTranscriptText}</pre>
-              </>
-            )}
-          </article>
-        )}
-      </section>
-
-      <section className="workspace" aria-label="Transcription workspace">
-        <aside className="history-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">Library</span>
-              <h2>History</h2>
-            </div>
-            <Clock3 size={19} />
-          </div>
-          <HistoryContent
-            isSignedIn={isSignedIn}
-            transcripts={transcripts}
-            activeId={activeTranscript?.id}
-            onSelect={setActiveId}
-          />
-        </aside>
-
-        <article className="transcript-panel">
-          {activeTranscript ? (
-            <>
-              <div className="result-heading">
-                <div>
-                  <span className="eyebrow">Transcript</span>
-                  <h2>{activeTranscript.title || "Untitled video"}</h2>
                 </div>
                 <div className="actions">
                   <button className="icon-btn" type="button" onClick={copyTranscript} aria-label="Copy transcript">
@@ -545,186 +533,236 @@ function App() {
                   >
                     <Download size={18} />
                   </button>
-                  <button
-                    className="icon-btn danger"
-                    type="button"
-                    onClick={() => deleteTranscript(activeTranscript.id)}
-                    aria-label="Delete transcript"
-                  >
-                    <Trash2 size={18} />
-                  </button>
                 </div>
               </div>
-
-              <a className="video-link" href={activeTranscript.video_url} target="_blank" rel="noreferrer">
-                {activeTranscript.video_url}
-              </a>
-              {activeTranscript.thumbnail_url && (
-                <img
-                  src={activeTranscript.thumbnail_url}
-                  alt={activeTranscript.title || "Video thumbnail"}
-                  loading="lazy"
-                  style={{
-                    width: "100%",
-                    maxWidth: "480px",
-                    aspectRatio: "16 / 9",
-                    objectFit: "cover",
-                    borderRadius: "20px",
-                    marginBottom: "1.25rem",
-                    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.12)",
-                  }}
-                />
-              )}
-
-              <pre className="transcript-text">{activeTranscriptText}</pre>
-
-              <section className="ai-panel">
-                <div className="ai-panel-header">
-                  <div>
-                    <span className="eyebrow">AI summary</span>
-                    <h3>Summarize this transcript</h3>
-                  </div>
-                  <button
-                    className="pill-btn secondary"
-                    type="button"
-                    onClick={handleSummarize}
-                    disabled={summaryLoading || !isSignedIn}
-                  >
-                    {summaryLoading ? <Loader2 className="spin" size={16} /> : <FileText size={16} />}
-                    {summaryLoading ? "Generating summary" : activeTranscript.summary ? "Regenerate summary" : "Generate summary"}
-                  </button>
-                </div>
-                {activeTranscript.summary ? (
-                  <div className="summary-card">
-                    <p>{activeTranscript.summary}</p>
-                  </div>
-                ) : (
-                  <p className="muted">Generate an on-demand summary for the current transcript.</p>
-                )}
-              </section>
-
-              <section className="ai-panel">
-                <div className="ai-panel-header">
-                  <div>
-                    <span className="eyebrow">Transcript chat</span>
-                    <h3>Ask questions about this video</h3>
-                  </div>
-                  <MessageSquare size={18} />
-                </div>
-
-                <div className="chat-thread" aria-live="polite">
-                  {activeMessages.length === 0 ? (
-                    <p className="muted">
-                      Ask for action items, decisions, key takeaways, or any detail grounded in the transcript.
-                    </p>
-                  ) : (
-                    activeMessages.map((item) => (
-                      <article
-                        key={`${item.created_at}-${item.role}-${item.content.slice(0, 20)}`}
-                        className={`chat-bubble ${item.role === "assistant" ? "assistant" : "user"}`}
-                      >
-                        <span className="chat-role">{item.role === "assistant" ? "Assistant" : "You"}</span>
-                        <p>{item.content}</p>
-                        {item.role === "assistant" && Array.isArray(item.sources) && item.sources.length > 0 && (
-                          <div className="chat-sources">
-                            {item.sources.map((source) => (
-                              <div key={`${source.chunk_index}-${source.chunk_text.slice(0, 24)}`} className="source-chip">
-                                <strong>Chunk {source.chunk_index}</strong>
-                                <span>{source.chunk_text}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </article>
-                    ))
-                  )}
-                </div>
-
-                <form className="chat-form" onSubmit={handleAskQuestion}>
-                  <textarea
-                    value={question}
-                    onChange={(event) => setQuestion(event.target.value)}
-                    placeholder="Ask a question about this transcript..."
-                    rows={3}
-                    disabled={!isSignedIn || chatLoading}
-                  />
-                  <button type="submit" disabled={!isSignedIn || chatLoading || !question.trim()}>
-                    {chatLoading ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-                    {chatLoading ? "Getting answer" : "Get answer"}
-                  </button>
-                </form>
-              </section>
+              <pre className="hero-transcript-text">{activeTranscriptText}</pre>
             </>
-          ) : (
-            <div className="empty-state">
-              <Sparkles size={28} />
-              <h2>Ready when the link is.</h2>
-              <p>Your transcript, timestamps, and saved history will land here.</p>
-            </div>
           )}
         </article>
-      </section>
-
-      {historyOpen && (
-        <PanelModal title="History" eyebrow="Library" onClose={() => setHistoryOpen(false)}>
-          <HistoryContent
-            isSignedIn={isSignedIn}
-            transcripts={transcripts}
-            activeId={activeTranscript?.id}
-            onSelect={(id) => {
-              setActiveId(id);
-              setHistoryOpen(false);
-            }}
-          />
-        </PanelModal>
       )}
+    </section>
 
-      {profileOpen && (
-        <PanelModal title="Profile" eyebrow="Account" onClose={() => setProfileOpen(false)}>
-          {!isSignedIn ? (
-            <div className="profile-locked">
-              <p className="muted">Sign in to view and update your profile.</p>
-              <SignUpButton mode="modal">
-                <button className="pill-btn" type="button">Login</button>
-              </SignUpButton>
+    <section className="workspace" aria-label="Transcription workspace">
+      <aside className="history-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Library</span>
+            <h2>History</h2>
+          </div>
+          <Clock3 size={19} />
+        </div>
+        <HistoryContent
+          isSignedIn={isSignedIn}
+          transcripts={transcripts}
+          activeId={activeTranscript?.id}
+          onSelect={setActiveId}
+        />
+      </aside>
+
+      <article className="transcript-panel">
+        {activeTranscript ? (
+          <>
+            <div className="result-heading">
+              <div>
+                <span className="eyebrow">Transcript</span>
+                <h2>{activeTranscript.title || "Untitled video"}</h2>
+              </div>
+              <div className="actions">
+                <button className="icon-btn" type="button" onClick={copyTranscript} aria-label="Copy transcript">
+                  {copied ? <Check size={18} /> : <Clipboard size={18} />}
+                </button>
+                <button
+                  className="icon-btn"
+                  type="button"
+                  onClick={() => downloadTranscript(activeTranscript)}
+                  aria-label="Download transcript"
+                >
+                  <Download size={18} />
+                </button>
+                <button
+                  className="icon-btn danger"
+                  type="button"
+                  onClick={() => deleteTranscript(activeTranscript.id)}
+                  aria-label="Delete transcript"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
             </div>
-          ) : (
-            <>
-              {profileMessage && <p className={`notice auth-notice ${profileMessageKind}`}>{profileMessage}</p>}
-              <form className="profile-form" onSubmit={updateProfile}>
-                <div className="avatar-edit">
-                  {user?.imageUrl ? (
-                    <img src={user.imageUrl} alt="Profile" />
-                  ) : (
-                    <span>
-                      <User size={34} />
-                    </span>
-                  )}
-                  <label className="upload-btn">
-                    <ImagePlus size={17} />
-                    Add picture
-                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={uploadAvatar} />
-                  </label>
+
+            <a className="video-link" href={activeTranscript.video_url} target="_blank" rel="noreferrer">
+              {activeTranscript.video_url}
+            </a>
+            {activeTranscript.thumbnail_url && (
+              <img
+                src={activeTranscript.thumbnail_url}
+                alt={activeTranscript.title || "Video thumbnail"}
+                loading="lazy"
+                style={{
+                  width: "100%",
+                  maxWidth: "480px",
+                  aspectRatio: "16 / 9",
+                  objectFit: "cover",
+                  borderRadius: "20px",
+                  marginBottom: "1.25rem",
+                  boxShadow: "0 18px 40px rgba(0, 0, 0, 0.12)",
+                }}
+              />
+            )}
+
+            <pre className="transcript-text">{activeTranscriptText}</pre>
+
+            <section className="ai-panel">
+              <div className="ai-panel-header">
+                <div>
+                  <span className="eyebrow">AI summary</span>
+                  <h3>Summarize this transcript</h3>
                 </div>
-                <label>
-                  Name
-                  <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-                </label>
-                <label>
-                  Email
-                  <input value={user?.primaryEmailAddress?.emailAddress || ""} disabled />
-                </label>
-                <button type="submit" disabled={profileSaving}>
-                  {profileSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
-                  Save profile
+                <button
+                  className="pill-btn secondary"
+                  type="button"
+                  onClick={handleSummarize}
+                  disabled={summaryLoading || !isSignedIn}
+                >
+                  {summaryLoading ? <Loader2 className="spin" size={16} /> : <FileText size={16} />}
+                  {summaryLoading ? "Generating summary" : activeTranscript.summary ? "Regenerate summary" : "Generate summary"}
+                </button>
+              </div>
+              {activeTranscript.summary ? (
+                <div className="summary-card">
+                  <p>{activeTranscript.summary}</p>
+                </div>
+              ) : (
+                <p className="muted">Generate an on-demand summary for the current transcript.</p>
+              )}
+            </section>
+
+            <section className="ai-panel">
+              <div className="ai-panel-header">
+                <div>
+                  <span className="eyebrow">Transcript chat</span>
+                  <h3>Ask questions about this video</h3>
+                </div>
+                <MessageSquare size={18} />
+              </div>
+
+              <div className="chat-thread" aria-live="polite">
+                {activeMessages.length === 0 ? (
+                  <p className="muted">
+                    Ask for action items, decisions, key takeaways, or any detail grounded in the transcript.
+                  </p>
+                ) : (
+                  activeMessages.map((item) => (
+                    <article
+                      key={`${item.created_at}-${item.role}-${item.content.slice(0, 20)}`}
+                      className={`chat-bubble ${item.role === "assistant" ? "assistant" : "user"}`}
+                    >
+                      <span className="chat-role">{item.role === "assistant" ? "Assistant" : "You"}</span>
+                      <p>{item.content}</p>
+                      {item.role === "assistant" && Array.isArray(item.sources) && item.sources.length > 0 && (
+                        <div className="chat-sources">
+                          {item.sources.map((source) => (
+                            <div key={`${source.chunk_index}-${source.chunk_text.slice(0, 24)}`} className="source-chip">
+                              <strong>Chunk {source.chunk_index}</strong>
+                              <span>{source.chunk_text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  ))
+                )}
+              </div>
+
+              <form className="chat-form" onSubmit={handleAskQuestion}>
+                <textarea
+                  value={question}
+                  onChange={(event) => setQuestion(event.target.value)}
+                  placeholder="Ask a question about this transcript..."
+                  rows={3}
+                  disabled={!isSignedIn || chatLoading}
+                />
+                <button type="submit" disabled={!isSignedIn || chatLoading || !question.trim()}>
+                  {chatLoading ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+                  {chatLoading ? "Getting answer" : "Get answer"}
                 </button>
               </form>
-            </>
-          )}
-        </PanelModal>
-      )}
-    </main>
-  );
+            </section>
+          </>
+        ) : (
+          <div className="empty-state">
+            <Sparkles size={28} />
+            <h2>Ready when the link is.</h2>
+            <p>Your transcript, timestamps, and saved history will land here.</p>
+          </div>
+        )}
+      </article>
+    </section>
+
+    {historyOpen && (
+      <PanelModal title="History" eyebrow="Library" onClose={() => setHistoryOpen(false)}>
+        <HistoryContent
+          isSignedIn={isSignedIn}
+          transcripts={transcripts}
+          activeId={activeTranscript?.id}
+          onSelect={(id) => {
+            setActiveId(id);
+            setHistoryOpen(false);
+          }}
+        />
+      </PanelModal>
+    )}
+
+    {profileOpen && (
+      <PanelModal title="Profile" eyebrow="Account" onClose={() => setProfileOpen(false)}>
+        {!isSignedIn ? (
+          <div className="profile-locked">
+            <p className="muted">Sign in to view and update your profile.</p>
+            <SignUpButton mode="modal">
+              <button className="pill-btn" type="button">Login</button>
+            </SignUpButton>
+          </div>
+        ) : usesGuestMode ? (
+          <div className="profile-locked">
+            <p className="muted">The side panel runs in guest mode, so profile management stays in the main web app.</p>
+          </div>
+        ) : (
+          <>
+            {profileMessage && <p className={`notice auth-notice ${profileMessageKind}`}>{profileMessage}</p>}
+            <form className="profile-form" onSubmit={updateProfile}>
+              <div className="avatar-edit">
+                {user?.imageUrl ? (
+                  <img src={user.imageUrl} alt="Profile" />
+                ) : (
+                  <span>
+                    <User size={34} />
+                  </span>
+                )}
+                <label className="upload-btn">
+                  <ImagePlus size={17} />
+                  Add picture
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={uploadAvatar} />
+                </label>
+              </div>
+              <label>
+                Name
+                <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+              </label>
+              <label>
+                Email
+                <input value={user?.primaryEmailAddress?.emailAddress || ""} disabled />
+              </label>
+              <button type="submit" disabled={profileSaving}>
+                {profileSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+                Save profile
+              </button>
+            </form>
+          </>
+        )}
+      </PanelModal>
+    )}
+  </main>
+);
 }
 
 function PanelModal({ eyebrow, title, children, onClose }) {
@@ -887,12 +925,12 @@ function sanitizeMessages(messages) {
       created_at: message.created_at || new Date().toISOString(),
       sources: Array.isArray(message.sources)
         ? message.sources
-            .filter((source) => source && typeof source === "object")
-            .map((source) => ({
-              chunk_index: source.chunk_index ?? 0,
-              chunk_text: typeof source.chunk_text === "string" ? source.chunk_text : "",
-            }))
-            .filter((source) => source.chunk_text)
+          .filter((source) => source && typeof source === "object")
+          .map((source) => ({
+            chunk_index: source.chunk_index ?? 0,
+            chunk_text: typeof source.chunk_text === "string" ? source.chunk_text : "",
+          }))
+          .filter((source) => source.chunk_text)
         : [],
     }))
     .filter((message) => message.content.trim());
@@ -933,6 +971,11 @@ function resolveApiBaseUrl() {
     return desktopBaseUrl.trim();
   }
 
+  const viteDesktopBaseUrl = import.meta.env.VITE_DESKTOP_API_BASE_URL;
+  if (isDesktop && typeof viteDesktopBaseUrl === "string" && viteDesktopBaseUrl.trim()) {
+    return viteDesktopBaseUrl.trim();
+  }
+
   const viteBaseUrl = import.meta.env.VITE_API_BASE_URL;
   if (typeof viteBaseUrl === "string" && viteBaseUrl.trim()) {
     return viteBaseUrl.trim();
@@ -941,10 +984,53 @@ function resolveApiBaseUrl() {
   return "";
 }
 
+function Root() {
+  if (usesGuestMode) {
+    return (
+      <AppShell
+        auth={{
+          usesGuestMode: true,
+          isLoaded: true,
+          isSignedIn: true,
+          getToken: () => Promise.resolve(null),
+          userId: "extension-guest",
+          user: null,
+        }}
+      />
+    );
+  }
+
+  if (clerkKey) {
+    return (
+      <ClerkProvider publishableKey={clerkKey} afterSignOutUrl="/">
+        <AuthenticatedApp />
+      </ClerkProvider>
+    );
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
+  const authContext = useAuth();
+  const userContext = useUser();
+
+  return (
+    <AppShell
+      auth={{
+        usesGuestMode: false,
+        isLoaded: authContext.isLoaded,
+        isSignedIn: authContext.isSignedIn,
+        getToken: authContext.getToken,
+        userId: authContext.userId,
+        user: userContext.user,
+      }}
+    />
+  );
+}
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={clerkKey} afterSignOutUrl="/">
-      <App />
-    </ClerkProvider>
+    <Root />
   </React.StrictMode>,
 );

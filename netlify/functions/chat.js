@@ -4,6 +4,7 @@ import {
   createJsonResponse,
   findTranscriptMatchesLocally,
   generateChatAnswer,
+  isExtensionRequest,
   normalizeChatHistory,
 } from "./_rag.js";
 
@@ -27,15 +28,19 @@ export async function handler(event) {
     return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." }, origin);
   }
 
-  const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    return createJsonResponse(401, { error: "Sign in before using transcript chat." }, origin);
-  }
+  const extensionRequest = isExtensionRequest(event.headers);
 
-  try {
-    await verifyToken(token, { secretKey: clerkSecretKey });
-  } catch {
-    return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+  if (!extensionRequest) {
+    const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return createJsonResponse(401, { error: "Sign in before using transcript chat." }, origin);
+    }
+
+    try {
+      await verifyToken(token, { secretKey: clerkSecretKey });
+    } catch {
+      return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+    }
   }
 
   let body = {};

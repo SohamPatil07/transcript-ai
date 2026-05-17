@@ -1,5 +1,5 @@
 import { verifyToken } from "@clerk/backend";
-import { createCorsHeaders, createJsonResponse, generateSummary } from "./_rag.js";
+import { createCorsHeaders, createJsonResponse, generateSummary, isExtensionRequest } from "./_rag.js";
 
 export async function handler(event) {
   const origin = event.headers.origin || "*";
@@ -21,15 +21,19 @@ export async function handler(event) {
     return createJsonResponse(500, { error: "Missing CLERK_SECRET_KEY." }, origin);
   }
 
-  const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    return createJsonResponse(401, { error: "Sign in before summarizing." }, origin);
-  }
+  const extensionRequest = isExtensionRequest(event.headers);
 
-  try {
-    await verifyToken(token, { secretKey: clerkSecretKey });
-  } catch {
-    return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+  if (!extensionRequest) {
+    const token = event.headers.authorization?.replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return createJsonResponse(401, { error: "Sign in before summarizing." }, origin);
+    }
+
+    try {
+      await verifyToken(token, { secretKey: clerkSecretKey });
+    } catch {
+      return createJsonResponse(401, { error: "Your session expired. Please sign in again." }, origin);
+    }
   }
 
   let body = {};

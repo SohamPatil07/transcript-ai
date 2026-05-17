@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell, protocol } from "electron";
+import { app, BrowserWindow, Menu, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
@@ -6,6 +6,9 @@ import { readFileSync, existsSync } from "node:fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const packageJson = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+const productionConfig = packageJson.transcriptAi || {};
+const productionAppUrl = process.env.DESKTOP_APP_URL || productionConfig.productionAppUrl || "";
 
 app.setPath("userData", path.join(app.getPath("appData"), "Transcript AI"));
 app.setPath("sessionData", path.join(app.getPath("userData"), "session"));
@@ -138,16 +141,25 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(process.env.ELECTRON_START_URL);
-  } else {
-    // Start local HTTP server and load from there (required for Clerk OAuth)
-    startStaticServer(path.join(__dirname, "..", "dist")).then((serverUrl) => {
-      mainWindow.loadURL(serverUrl);
-    }).catch((err) => {
-      console.error("Failed to start static server:", err);
-      // Fallback to file:// (won't support Clerk auth but shows the UI)
-      mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  } else if (productionAppUrl) {
+    mainWindow.loadURL(productionAppUrl).catch((error) => {
+      console.error("Failed to load configured production app URL:", error);
+      loadBundledApp(mainWindow);
     });
+  } else {
+    loadBundledApp(mainWindow);
   }
+}
+
+function loadBundledApp(mainWindow) {
+  // Start local HTTP server and load from there (required for Clerk OAuth redirects).
+  startStaticServer(path.join(__dirname, "..", "dist")).then((serverUrl) => {
+    mainWindow.loadURL(serverUrl);
+  }).catch((error) => {
+    console.error("Failed to start bundled static server:", error);
+    // Fallback to file:// so the UI is still visible even if auth is limited.
+    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  });
 }
 
 app.whenReady().then(() => {
