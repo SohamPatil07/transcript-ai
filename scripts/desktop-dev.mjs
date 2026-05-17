@@ -3,8 +3,10 @@ import process from "node:process";
 
 const isWindows = process.platform === "win32";
 const ansiPattern = /\u001B\[[0-9;]*m/g;
+const viteCommand = isWindows ? ".\\node_modules\\.bin\\vite.cmd --host 127.0.0.1" : "./node_modules/.bin/vite --host 127.0.0.1";
+const electronCommand = isWindows ? ".\\node_modules\\.bin\\electron.cmd ." : "./node_modules/.bin/electron .";
 
-const vite = spawnCommand("npx vite --host 127.0.0.1", {
+const vite = spawnCommand(viteCommand, {
   stdio: ["inherit", "pipe", "pipe"],
 });
 
@@ -25,7 +27,7 @@ vite.stdout.on("data", (chunk) => {
   electronStarted = true;
   const startUrl = urlMatch[1].replace("localhost", "127.0.0.1");
   process.stdout.write(`\n[desktop] Launching Electron at ${startUrl}\n`);
-  electronProcess = spawnCommand("npx electron .", {
+  electronProcess = spawnCommand(electronCommand, {
     env: {
       ...process.env,
       ELECTRON_START_URL: startUrl,

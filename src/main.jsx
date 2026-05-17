@@ -63,11 +63,6 @@ if (window.desktopApp?.onLoadError) {
   });
 }
 
-// Only require Clerk if not in extension (extension uses anonymous access)
-if (!isExtension && !clerkKey) {
-  throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env");
-}
-
 function AppShell({ auth }) {
   const { usesGuestMode, isLoaded, isSignedIn, getToken, userId, user } = auth;
 
@@ -972,7 +967,7 @@ function resolveApiBaseUrl() {
   }
 
   const viteDesktopBaseUrl = import.meta.env.VITE_DESKTOP_API_BASE_URL;
-  if (isDesktop && typeof viteDesktopBaseUrl === "string" && viteDesktopBaseUrl.trim()) {
+  if (window.desktopApp?.isDesktop && typeof viteDesktopBaseUrl === "string" && viteDesktopBaseUrl.trim()) {
     return viteDesktopBaseUrl.trim();
   }
 
@@ -1008,7 +1003,24 @@ function Root() {
     );
   }
 
-  return <AuthenticatedApp />;
+  return (
+    <main>
+      <section className="offer-strip">
+        <Sparkles size={16} />
+        <span>Configuration needed before the web app can load.</span>
+      </section>
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="eyebrow">Environment setup</span>
+          <h1>Missing Clerk publishable key.</h1>
+          <p>
+            Add <code>VITE_CLERK_PUBLISHABLE_KEY</code> to your local <code>.env</code> file,
+            then restart the dev server.
+          </p>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function AuthenticatedApp() {

@@ -1,14 +1,18 @@
-import { app, BrowserWindow, Menu, shell } from "electron";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
+
+const require = createRequire(import.meta.url);
+const { app, BrowserWindow, Menu, shell } = require("electron");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageJson = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 const productionConfig = packageJson.transcriptAi || {};
 const productionAppUrl = process.env.DESKTOP_APP_URL || productionConfig.productionAppUrl || "";
+const productionAppOrigin = toOrigin(productionAppUrl);
 
 app.setPath("userData", path.join(app.getPath("appData"), "Transcript AI"));
 app.setPath("sessionData", path.join(app.getPath("userData"), "session"));
@@ -98,7 +102,13 @@ function createWindow() {
 
   // Handle Clerk auth popup windows within Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    const urlObj = new URL(url);
+    let urlObj;
+    try {
+      urlObj = new URL(url);
+    } catch {
+      return { action: "deny" };
+    }
+
     // Allow Clerk and Google auth windows to open inside Electron
     if (
       urlObj.hostname.includes("clerk.com") ||
@@ -117,6 +127,9 @@ function createWindow() {
     if (isDev && url.startsWith(process.env.ELECTRON_START_URL)) {
       return { action: "allow" };
     }
+    if (!isDev && productionAppOrigin && url.startsWith(productionAppOrigin)) {
+      return { action: "allow" };
+    }
     // For other external URLs, open in system browser
     shell.openExternal(url);
     return { action: "deny" };
@@ -125,8 +138,9 @@ function createWindow() {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const allowedDevOrigin = process.env.ELECTRON_START_URL;
     const sameDevOrigin = allowedDevOrigin && url.startsWith(allowedDevOrigin.replace(/\/$/, ""));
+    const sameProductionOrigin = productionAppOrigin && url.startsWith(productionAppOrigin);
 
-    if (sameDevOrigin) return;
+    if (sameDevOrigin || sameProductionOrigin) return;
 
     try {
       const target = new URL(url);
@@ -212,3 +226,11 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+function toOrigin(rawUrl) {
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    return "";
+  }
+}
